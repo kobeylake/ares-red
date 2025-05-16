@@ -33,10 +33,6 @@ This system uses a Nordic Thingy:52 sensor node and NRF52840 development boards 
   /tools/
   ├── grafana/ # Grafana dashboard config and provisioning
   └── protocol/ # BLE message format definitions and constants
-  
-  /docs/
-  ├── protocol_spec.md # Packet structures, sensor IDs, and message flow
-  └── setup_guide.md # Hardware wiring and deployment instructions
 ```
 ---
 
