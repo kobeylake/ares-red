@@ -1,0 +1,55 @@
+cmake:
+  application:
+    configuration-dir: /home/james/csse4011/repo/mycode/apps/prac3/viewer_node
+    source-dir: /home/james/csse4011/repo/mycode/apps/prac3/viewer_node
+  board:
+    name: m5stack_core2
+    path:
+     - /home/james/csse4011/repo/zephyr/boards/m5stack/m5stack_core2
+    qualifiers: esp32/procpu
+    revision: 
+  devicetree:
+    bindings-dirs:
+     - /home/james/csse4011/repo/zephyr/dts/bindings
+    files:
+     - /home/james/csse4011/repo/zephyr/boards/m5stack/m5stack_core2/m5stack_core2_procpu.dts
+    include-dirs:
+     - /home/james/csse4011/repo/modules/hal/atmel/include
+     - /home/james/csse4011/repo/modules/hal/gigadevice/include
+     - /home/james/csse4011/repo/modules/hal/microchip/include
+     - /home/james/csse4011/repo/modules/hal/microchip/dts
+     - /home/james/csse4011/repo/modules/hal/nuvoton/dts
+     - /home/james/csse4011/repo/modules/hal/nxp/dts
+     - /home/james/csse4011/repo/modules/hal/stm32/dts
+     - /home/james/csse4011/repo/zephyr/include
+     - /home/james/csse4011/repo/zephyr/include/zephyr
+     - /home/james/csse4011/repo/zephyr/dts/common
+     - /home/james/csse4011/repo/zephyr/dts/x86
+     - /home/james/csse4011/repo/zephyr/dts/xtensa
+     - /home/james/csse4011/repo/zephyr/dts/sparc
+     - /home/james/csse4011/repo/zephyr/dts/riscv
+     - /home/james/csse4011/repo/zephyr/dts/posix
+     - /home/james/csse4011/repo/zephyr/dts/nios2
+     - /home/james/csse4011/repo/zephyr/dts/arm64
+     - /home/james/csse4011/repo/zephyr/dts/arm
+     - /home/james/csse4011/repo/zephyr/dts/arc
+     - /home/james/csse4011/repo/zephyr/dts
+  kconfig:
+    files:
+     - /home/james/csse4011/repo/zephyr/boards/m5stack/m5stack_core2/m5stack_core2_procpu_defconfig
+     - /home/james/csse4011/repo/mycode/apps/prac3/viewer_node/prj.conf
+     - /home/james/csse4011/repo/mycode/apps/prac3/viewer_node/boards/m5stack_core2_procpu.conf
+    user-files:
+     - /home/james/csse4011/repo/mycode/apps/prac3/viewer_node/prj.conf
+     - /home/james/csse4011/repo/mycode/apps/prac3/viewer_node/boards/m5stack_core2_procpu.conf
+  toolchain:
+    name: espressif
+    path: /home/james/toolchains/xtensa-esp32-elf
+  zephyr:
+    version: 4.1.0-rc3
+    zephyr-base: /home/james/csse4011/repo/zephyr
+version: 0.1.0
+west:
+  command: /home/james/zephyr_install/env/bin/west build -b m5stack_core2/esp32/procpu -s .
+  topdir: /home/james/csse4011/repo
+  version: 1.3.0
