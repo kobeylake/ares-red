@@ -17,9 +17,9 @@ This system uses a Nordic Thingy:52 sensor node and NRF52840 development boards 
 
 ## Architecture
 
-[Thingy52] --BLE--> [Base Node (NRF52840DK)] --BLE--> [Actuator Node (NRF52840DK + CRICKIT)]
-                                             --USB--> Host Laptop --InfluxDB--> [Grafana Dashboard]
-                                                                  --BLE-------> [M5 Core2 Viewer Display]
+Thingy52] --BLE--> Base Node (NRF52840DK) --BLE--> Actuator Node (NRF52840DK + CRICKIT)
+                                          --USB--> Host Laptop --InfluxDB--> Grafana Dashboard
+                                                               --BLE-------> M5 Core2 Viewer Display
 ---
 
 /firmware/
