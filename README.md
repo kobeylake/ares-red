@@ -16,14 +16,14 @@ This system uses a Nordic Thingy:52 sensor node and NRF52840 development boards 
 ---
 
 ## Architecture
-'''
+```
   Thingy52 --BLE--> Base Node (NRF52840DK) --BLE--> Actuator Node (NRF52840DK + CRICKIT)
                                            --USB--> Host Laptop --InfluxDB--> Grafana Dashboard
                                                                 --BLE-------> M5 Core2 Viewer Display
-'''
+```
 ---
 ## Project Structure
-'''
+```
   /firmware/
   ├── thingy52/ # Environmental sensor logic + BLE advertising
   ├── base_node/ # BLE central node + data fusion + control logic
@@ -37,7 +37,7 @@ This system uses a Nordic Thingy:52 sensor node and NRF52840 development boards 
   /docs/
   ├── protocol_spec.md # Packet structures, sensor IDs, and message flow
   └── setup_guide.md # Hardware wiring and deployment instructions
-'''
+```
 ---
 
 ## Features
