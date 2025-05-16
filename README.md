@@ -23,19 +23,19 @@ This system uses a Nordic Thingy:52 sensor node and NRF52840 development boards 
 ---
 ## Project Structure
 
-/firmware/
-├── thingy52/ # Environmental sensor logic + BLE advertising
-├── base_node/ # BLE central node + data fusion + control logic
-├── actuator_node/ # BLE peripheral + servo control via CRICKIT
-└── viewer_display/ # M5 Core2 LVGL display code
-
-/tools/
-├── grafana/ # Grafana dashboard config and provisioning
-└── protocol/ # BLE message format definitions and constants
-
-/docs/
-├── protocol_spec.md # Packet structures, sensor IDs, and message flow
-└── setup_guide.md # Hardware wiring and deployment instructions
+  /firmware/
+  ├── thingy52/ # Environmental sensor logic + BLE advertising
+  ├── base_node/ # BLE central node + data fusion + control logic
+  ├── actuator_node/ # BLE peripheral + servo control via CRICKIT
+  └── viewer_display/ # M5 Core2 LVGL display code
+  
+  /tools/
+  ├── grafana/ # Grafana dashboard config and provisioning
+  └── protocol/ # BLE message format definitions and constants
+  
+  /docs/
+  ├── protocol_spec.md # Packet structures, sensor IDs, and message flow
+  └── setup_guide.md # Hardware wiring and deployment instructions
 
 ---
 
