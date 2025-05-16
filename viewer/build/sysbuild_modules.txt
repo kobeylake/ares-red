@@ -1,1 +1,0 @@
-"mcuboot":"/home/james/csse4011/repo/bootloader/mcuboot":"/home/james/csse4011/repo/bootloader/mcuboot/boot/zephyr/sysbuild"
