@@ -3,20 +3,25 @@
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/sys/printk.h>
 #include <zephyr/timing/timing.h>
-
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/hci.h>
+#include <zephyr/sys/byteorder.h>
+#include <string.h>
+
+#define COMPANY_ID_LSB     0xAF
+#define COMPANY_ID_MSB     0x6F
+#define APP_ID_MOBILE      0xBB
 
 #define TRIG_PIN 10
 #define ECHO_PIN 9
 #define TIMEOUT_US 25000
 #define GPIO1_NODE DT_NODELABEL(gpio1)
 
-// Format: [Company ID (0xFFFF)], [App ID (0xAA)], [Distance LSB], [Distance MSB]
-static uint8_t mfg_data[5] = {
+// Format: [Company ID (0xFFFF)], [App ID (0xAA)], [Desired angle - to send to the other nrf board (in degrees)]
+static uint8_t mfg_data[4] = {
     0xAF, 0x6F, // Fake company ID (0xFFFF) — for prototyping
     0xAA,       // Custom App ID
-    0x00, 0x00  // Placeholder for distance
+    0x00  // Placeholder for servo angle (0-90deg)
 };
 
 static struct bt_data ad[] = {
@@ -44,17 +49,13 @@ int main(void)
         return 1;
     }
     
-    bt_addr_le_t addr;
-    size_t count = 1;
-    bt_id_get(&addr, &count);
-    char addr_str[BT_ADDR_LE_STR_LEN];
-    bt_addr_le_to_str(&addr, addr_str, sizeof(addr_str));
-    printk("Bluetooth MAC address: %s\n", addr_str);
+    // bt_addr_le_t addr;
+    // size_t count = 1;
+    // bt_id_get(&addr, &count);
+    // char addr_str[BT_ADDR_LE_STR_LEN];
+    // bt_addr_le_to_str(&addr, addr_str, sizeof(addr_str));
+    // printk("Bluetooth MAC address: %s\n", addr_str);
     
-
-    // Set Company ID: Nordic Semiconductor (0x0059)
-    //mfg_data[0] = 0x59; // LSB
-    //mfg_data[1] = 0x00; // MSB
 
     int err = bt_le_adv_start(adv_params, ad, ARRAY_SIZE(ad), NULL, 0);
     if (err) {
@@ -104,11 +105,12 @@ int main(void)
         if (distance_mm > 65535) distance_mm = 65535;
         uint16_t dist_encoded = (uint16_t)distance_mm;
 
-        // Update mfg_data payload (after company ID)
-        mfg_data[3] = dist_encoded & 0xFF;
-        mfg_data[4] = (dist_encoded >> 8) & 0xFF;
 
-        printk("Distance: %.2f cm (encoded as %u mm)\n", distance_cm, dist_encoded);
+        printk("Distance: encoded as %u mm\n", dist_encoded);
+
+        // use a kalman filter to calcualte optimal opening angle, for the servo 
+        // motor on another nrf board
+        mfg_data[3] = 69; // calcualted angle to send over ble
 
         // Update advertising payload
         bt_le_adv_update_data(ad, ARRAY_SIZE(ad), NULL, 0);
