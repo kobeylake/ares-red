@@ -8,5 +8,5 @@ src/sensor.c
 src/bluetooth.c
 )
 
-include_directories(include)
+target_include_directories(app PRIVATE include)
 

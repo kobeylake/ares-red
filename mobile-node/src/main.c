@@ -1,22 +1,21 @@
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include "sensor.h"
-
-void bluetooth_init(void);
-void bluetooth_update_payload(struct greenhouse_data *data);
+#include "bluetooth.h"
 
 LOG_MODULE_REGISTER(main_app, LOG_LEVEL_INF);
 
-void main(void) {
+int main(void) {
     LOG_INF("Greenhouse Thingy52 starting...");
 
-    sensor_init_all();
-    bluetooth_init();
+    sensor_task_start();       // Start threaded sensor sampling
+    bluetooth_init();          // Initialise BLE
+    bluetooth_task_start();    // Start threaded BLE advertiser
 
+    // Main thread sleeps forever — all work is done in threads
     while (1) {
-        struct greenhouse_data data;
-        sensor_get_latest_values(&data);
-        bluetooth_update_payload(&data);
-        k_sleep(K_SECONDS(5));
+        k_sleep(K_FOREVER);
     }
+
+    return 0;
 }

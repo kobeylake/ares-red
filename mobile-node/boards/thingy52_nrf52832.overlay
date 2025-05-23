@@ -1,28 +1,6 @@
 / {
     aliases {
-        rtc0 = &rtc0;
         hts221 = &hts221;
-        lps22hb = &lps22hb_press;
         ccs811 = &ccs811;
-        led0 = &led0;
-        led1 = &led1;
-        led2 = &led2;
-        sw0 = &button0;
     };
-};
-
-&rtc0 {
-    status = "okay";
-};
-
-&led0 {
-    status = "okay";
-};
-
-&led1 {
-    status = "okay";
-};
-
-&led2 {
-    status = "okay";
 };
