@@ -4,7 +4,7 @@ import json
 import paho.mqtt.client as mqtt
 
 # MQTT settings
-BROKER_IP = "192.168.0.242"
+BROKER_IP = "172.19.41.241"
 TOPIC = "greenhouse/data"
 
 # Simulated data
