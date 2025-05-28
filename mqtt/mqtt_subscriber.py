@@ -2,18 +2,18 @@
 import paho.mqtt.client as mqtt
 
 # MQTT settings
-BROKER_IP = "172.19.41.241"
+BROKER_IP = "192.168.0.242"
 TOPIC = "greenhouse/data"
 
-def on_connect(client, userdata, flags, rc):
-    print(f"[MQTT] Connected with result code {rc}")
+def on_connect(client, userdata, flags, reasonCode, properties):
+    print(f"[MQTT] Connected with reason code {reasonCode}")
     client.subscribe(TOPIC)
 
 def on_message(client, userdata, msg):
     print(f"[MQTT] Received: {msg.payload.decode()}")
 
 def main():
-    client = mqtt.Client()
+    client = mqtt.Client(protocol=mqtt.MQTTv5)  # For MQTT v5
     client.on_connect = on_connect
     client.on_message = on_message
 
