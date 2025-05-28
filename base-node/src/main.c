@@ -21,7 +21,7 @@
 struct sensor_json_msg {
     uint16_t company_id;
     //uint32_t timestamp;
-    uint32_t sensor_values[4];
+    uint32_t sensor_values[5];
     size_t sensor_values_len;
 };
 
@@ -29,7 +29,7 @@ struct sensor_json_msg {
 static const struct json_obj_descr sensor_json_descr[] = {
     JSON_OBJ_DESCR_PRIM(struct sensor_json_msg, company_id, JSON_TOK_NUMBER),
     //JSON_OBJ_DESCR_PRIM(struct sensor_json_msg, timestamp, JSON_TOK_NUMBER),
-    JSON_OBJ_DESCR_ARRAY(struct sensor_json_msg, sensor_values, 4, sensor_values_len, JSON_TOK_NUMBER)
+    JSON_OBJ_DESCR_ARRAY(struct sensor_json_msg, sensor_values, 5, sensor_values_len, JSON_TOK_NUMBER)
 };
 
 // BLE Advertising payload (used to send servo angle)
@@ -83,8 +83,8 @@ static void device_found(const bt_addr_le_t *addr, int8_t rssi, uint8_t type,
                 struct sensor_json_msg msg = {
                     .company_id = COMPANY_ID,
                     //.timestamp = my_rtc_get_time(),
-                    .sensor_values = {0, 0, 0, 0}, //init all sensor values to zero
-                    .sensor_values_len = 4,
+                    .sensor_values = {0, 0, 0, 0, 0}, //init all sensor values to zero
+                    .sensor_values_len = 5,
                 };
                 char buffer[128];
                 int ret = json_obj_encode_buf(sensor_json_descr, ARRAY_SIZE(sensor_json_descr), 
@@ -126,44 +126,10 @@ void scanner_thread_fn(void) {
     }
 }
 
-// Declare scanner thread
-#define SCANNER_STACK_SIZE 1024
-#define SCANNER_PRIORITY 4
-K_THREAD_STACK_DEFINE(scanner_stack, SCANNER_STACK_SIZE);
-static struct k_thread scanner_thread_data;
-
-int main(void)
-{
-    const struct device *gpio1 = DEVICE_DT_GET(GPIO1_NODE);
-    if (!device_is_ready(gpio1)) {
-        printk("GPIO1 not ready\n");
-        return 1;
-    }
-
-    if (bt_enable(NULL)) {
-        printk("Bluetooth init failed\n");
-        return 1;
-    }
-
-    int err = bt_le_adv_start(adv_params, ad, ARRAY_SIZE(ad), NULL, 0);
-    if (err) {
-        printk("BLE advertising failed to start (err %d)\n", err);
-        return 1;
-    }
-
-    printk("BLE advertising started\n");
-
-    // Start scanner thread
-    k_thread_create(&scanner_thread_data, scanner_stack, SCANNER_STACK_SIZE,
-                    (k_thread_entry_t)scanner_thread_fn, NULL, NULL, NULL,
-                    SCANNER_PRIORITY, 0, K_NO_WAIT);
-    k_thread_name_set(&scanner_thread_data, "ble_scanner");
-
-    gpio_pin_configure(gpio1, TRIG_PIN, GPIO_OUTPUT_ACTIVE);
-    gpio_pin_configure(gpio1, ECHO_PIN, GPIO_INPUT);
+void ultrasonic_thread_fn(void *gpio_dev, void *unused1, void *unused2) {
+    const struct device *gpio1 = gpio_dev;
 
     while (1) {
-        // Trigger ultrasonic measurement
         gpio_pin_set(gpio1, TRIG_PIN, 1);
         k_busy_wait(10);
         gpio_pin_set(gpio1, TRIG_PIN, 0);
@@ -197,14 +163,66 @@ int main(void)
         if (distance_mm > 65535) distance_mm = 65535;
         uint16_t dist_encoded = (uint16_t)distance_mm;
 
-        //printk("Distance: encoded as %u mm\n", dist_encoded);
+        printk("Distance: encoded as %u mm\n", dist_encoded);
 
-        // Simulate calculation of servo angle (e.g., using Kalman filter)
-        mfg_data[3] = 69; // placeholder for calculated angle
+        mfg_data[3] = 69; // simulated servo angle
 
-        // Update BLE advertisement
         bt_le_adv_update_data(ad, ARRAY_SIZE(ad), NULL, 0);
 
         k_sleep(K_MSEC(500));
+    }
+}
+
+
+// Declare scanner thread
+#define SCANNER_STACK_SIZE 1024
+#define SCANNER_PRIORITY 4
+K_THREAD_STACK_DEFINE(scanner_stack, SCANNER_STACK_SIZE);
+static struct k_thread scanner_thread_data;
+
+// Declare ultrasonic thread
+#define ULTRASONIC_STACK_SIZE 1024
+#define ULTRASONIC_PRIORITY   4
+K_THREAD_STACK_DEFINE(ultrasonic_stack, ULTRASONIC_STACK_SIZE);
+static struct k_thread ultrasonic_thread_data;
+
+int main(void)
+{
+    const struct device *gpio1 = DEVICE_DT_GET(GPIO1_NODE);
+    if (!device_is_ready(gpio1)) {
+        printk("GPIO1 not ready\n");
+        return 1;
+    }
+
+    if (bt_enable(NULL)) {
+        printk("Bluetooth init failed\n");
+        return 1;
+    }
+
+    int err = bt_le_adv_start(adv_params, ad, ARRAY_SIZE(ad), NULL, 0);
+    if (err) {
+        printk("BLE advertising failed to start (err %d)\n", err);
+        return 1;
+    }
+
+    printk("BLE advertising started\n");
+
+    // Start scanner thread
+    k_thread_create(&scanner_thread_data, scanner_stack, SCANNER_STACK_SIZE,
+                    (k_thread_entry_t)scanner_thread_fn, NULL, NULL, NULL,
+                    SCANNER_PRIORITY, 0, K_NO_WAIT);
+    k_thread_name_set(&scanner_thread_data, "ble_scanner");
+
+    gpio_pin_configure(gpio1, TRIG_PIN, GPIO_OUTPUT_ACTIVE);
+    gpio_pin_configure(gpio1, ECHO_PIN, GPIO_INPUT);
+
+    // Start ultrasonic thread
+    k_thread_create(&ultrasonic_thread_data, ultrasonic_stack, ULTRASONIC_STACK_SIZE,
+                    ultrasonic_thread_fn, (void *)gpio1, NULL, NULL,
+                    ULTRASONIC_PRIORITY, 0, K_NO_WAIT);
+    k_thread_name_set(&ultrasonic_thread_data, "ultrasonic_thread");
+
+    while (1) {
+        k_sleep(K_FOREVER);
     }
 }
