@@ -6,6 +6,8 @@
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/hci.h>
 #include <string.h>
+#include <zephyr/data/json.h>
+
 
 #define COMPANY_ID         0x6FAF  // LSB: 0xAF, 0x6F
 #define APP_ID_MOBILE      0xBB
@@ -15,6 +17,20 @@
 #define ECHO_PIN 9
 #define TIMEOUT_US 25000
 #define GPIO1_NODE DT_NODELABEL(gpio1)
+
+struct sensor_json_msg {
+    uint16_t company_id;
+    //uint32_t timestamp;
+    uint32_t sensor_values[4];
+    size_t sensor_values_len;
+};
+
+
+static const struct json_obj_descr sensor_json_descr[] = {
+    JSON_OBJ_DESCR_PRIM(struct sensor_json_msg, company_id, JSON_TOK_NUMBER),
+    //JSON_OBJ_DESCR_PRIM(struct sensor_json_msg, timestamp, JSON_TOK_NUMBER),
+    JSON_OBJ_DESCR_ARRAY(struct sensor_json_msg, sensor_values, 4, sensor_values_len, JSON_TOK_NUMBER)
+};
 
 // BLE Advertising payload (used to send servo angle)
 static uint8_t mfg_data[4] = {
@@ -58,10 +74,27 @@ static void device_found(const bt_addr_le_t *addr, int8_t rssi, uint8_t type,
                 float temp = temp_raw / 100.0f;
                 float humid = humid_raw / 100.0f;
 
-                printk("Received Mobile Node Data:\n");
-                printk("  Temp: %.2f°C\n", temp);
-                printk("  CO2: %u ppm\n", co2);
-                printk("  Humidity: %.2f%%\n", humid);
+                
+                // printk("Received Mobile Node Data:\n");
+                // printk("  Temp: %.2f°C\n", temp);
+                // printk("  CO2: %u ppm\n", co2);
+                // printk("  Humidity: %.2f%%\n", humid);
+
+                struct sensor_json_msg msg = {
+                    .company_id = COMPANY_ID,
+                    //.timestamp = my_rtc_get_time(),
+                    .sensor_values = {0, 0, 0, 0}, //init all sensor values to zero
+                    .sensor_values_len = 4,
+                };
+                char buffer[128];
+                int ret = json_obj_encode_buf(sensor_json_descr, ARRAY_SIZE(sensor_json_descr), 
+                                            &msg, buffer, sizeof(buffer));
+                if (ret == 0) {
+                    printk("%s\n", buffer);
+                } else {
+                    printk("JSON encode failed\n");
+                }
+                    
             }
 
             net_buf_simple_pull(ad, len);
@@ -164,7 +197,7 @@ int main(void)
         if (distance_mm > 65535) distance_mm = 65535;
         uint16_t dist_encoded = (uint16_t)distance_mm;
 
-        printk("Distance: encoded as %u mm\n", dist_encoded);
+        //printk("Distance: encoded as %u mm\n", dist_encoded);
 
         // Simulate calculation of servo angle (e.g., using Kalman filter)
         mfg_data[3] = 69; // placeholder for calculated angle
