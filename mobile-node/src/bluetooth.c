@@ -7,8 +7,14 @@
 
 LOG_MODULE_REGISTER(ble_module, LOG_LEVEL_INF);
 
-// 6 bytes: 2 for temp, 2 for CO2, 2 for humidity
-static uint8_t adv_payload[6];
+// 9 bytes: 2 for Company ID, 1 for App ID, 6 for sensor data
+static uint8_t adv_payload[9] = {
+    0xAF, 0x6F,    // Company ID: 0x6FAF (little endian)
+    0xBB,          // App ID for mobile node
+    0x00, 0x00,    // Temperature (to be filled)
+    0x00, 0x00,    // CO2 (to be filled)
+    0x00, 0x00     // Humidity (to be filled)
+};
 
 static struct bt_data ad[] = {
     BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
@@ -35,12 +41,12 @@ static void bluetooth_thread_fn(void *a, void *b, void *c) {
         uint16_t co2 = snapshot.co2.val1;
         uint16_t humid = snapshot.humidity.val1 * 100 + snapshot.humidity.val2 / 10000;
 
-        adv_payload[0] = temp >> 8;
-        adv_payload[1] = temp & 0xFF;
-        adv_payload[2] = co2 >> 8;
-        adv_payload[3] = co2 & 0xFF;
-        adv_payload[4] = humid >> 8;
-        adv_payload[5] = humid & 0xFF;
+        adv_payload[3] = temp >> 8;
+        adv_payload[4] = temp & 0xFF;
+        adv_payload[5] = co2 >> 8;
+        adv_payload[6] = co2 & 0xFF;
+        adv_payload[7] = humid >> 8;
+        adv_payload[8] = humid & 0xFF;
 
         // Update BLE advertisement
         bt_le_adv_update_data(ad, ARRAY_SIZE(ad), NULL, 0);
