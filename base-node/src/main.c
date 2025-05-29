@@ -18,18 +18,33 @@
 #define TIMEOUT_US 25000
 #define GPIO1_NODE DT_NODELABEL(gpio1)
 
+#define DIST_RING_SIZE 16
+
+static uint16_t distance_ring[DIST_RING_SIZE];
+static size_t distance_ring_head = 0;
+K_MUTEX_DEFINE(distance_mutex);
+
+
 struct sensor_json_msg {
-    uint16_t company_id;
-    //uint32_t timestamp;
-    uint32_t sensor_values[5];
-    size_t sensor_values_len;
+    int32_t company_id;
+    int32_t co2_value;
+    int32_t humid_value[2];
+    size_t humid_value_len;
+    int32_t temp_value[2];
+    size_t temp_value_len;
+    int32_t angle_value;
+    int32_t distance_value;
 };
+
 
 
 static const struct json_obj_descr sensor_json_descr[] = {
     JSON_OBJ_DESCR_PRIM(struct sensor_json_msg, company_id, JSON_TOK_NUMBER),
-    //JSON_OBJ_DESCR_PRIM(struct sensor_json_msg, timestamp, JSON_TOK_NUMBER),
-    JSON_OBJ_DESCR_ARRAY(struct sensor_json_msg, sensor_values, 5, sensor_values_len, JSON_TOK_NUMBER)
+    JSON_OBJ_DESCR_PRIM(struct sensor_json_msg, co2_value, JSON_TOK_NUMBER),
+    JSON_OBJ_DESCR_ARRAY(struct sensor_json_msg, humid_value, 2, humid_value_len, JSON_TOK_NUMBER),
+    JSON_OBJ_DESCR_ARRAY(struct sensor_json_msg, temp_value, 2, temp_value_len, JSON_TOK_NUMBER),
+    JSON_OBJ_DESCR_PRIM(struct sensor_json_msg, angle_value, JSON_TOK_NUMBER),
+    JSON_OBJ_DESCR_PRIM(struct sensor_json_msg, distance_value, JSON_TOK_NUMBER)
 };
 
 // BLE Advertising payload (used to send servo angle)
@@ -68,33 +83,45 @@ static void device_found(const bt_addr_le_t *addr, int8_t rssi, uint8_t type,
                 const uint8_t *payload = ad->data + 3;
 
                 int16_t temp_raw = (payload[0] << 8) | payload[1];
-                uint16_t co2 = (payload[2] << 8) | payload[3];
+                uint16_t co2_raw = (payload[2] << 8) | payload[3];
                 uint16_t humid_raw = (payload[4] << 8) | payload[5];
 
-                float temp = temp_raw / 100.0f;
-                float humid = humid_raw / 100.0f;
+                uint16_t temp_int = temp_raw / 100;
+                uint16_t temp_frac = temp_raw % 100;
 
-                
+                uint16_t humid_int = humid_raw / 100;
+                uint16_t humid_frac = humid_raw % 100;
+
+                uint16_t latest_distance = 0;
+                k_mutex_lock(&distance_mutex, K_FOREVER);
+                size_t last_idx = (distance_ring_head + DIST_RING_SIZE - 1) % DIST_RING_SIZE;
+                latest_distance = distance_ring[last_idx];
+                k_mutex_unlock(&distance_mutex);
+
                 // printk("Received Mobile Node Data:\n");
-                // printk("  Temp: %.2f°C\n", temp);
-                // printk("  CO2: %u ppm\n", co2);
-                // printk("  Humidity: %.2f%%\n", humid);
+                // printk("  Temp: %d.%02d°C\n", temp_int, temp_frac);
+                // printk("  CO2: %u ppm\n", co2_raw);
+                // printk("  Humidity: %d.%02d%%\n", humid_int, humid_frac);
 
                 struct sensor_json_msg msg = {
                     .company_id = COMPANY_ID,
-                    //.timestamp = my_rtc_get_time(),
-                    .sensor_values = {0, 0, 0, 0, 0}, //init all sensor values to zero
-                    .sensor_values_len = 5,
-                };
-                char buffer[128];
-                int ret = json_obj_encode_buf(sensor_json_descr, ARRAY_SIZE(sensor_json_descr), 
-                                            &msg, buffer, sizeof(buffer));
+                    .co2_value = co2_raw,
+                    .humid_value = {humid_int, humid_frac},
+                    .humid_value_len = 2,
+                    .temp_value = {temp_int, temp_frac},
+                    .temp_value_len = 2,
+                    .angle_value = mfg_data[3],
+                    .distance_value = latest_distance
+                };              
+
+                char buffer[256];
+                int ret = json_obj_encode_buf(sensor_json_descr, ARRAY_SIZE(sensor_json_descr),
+                                              &msg, buffer, sizeof(buffer));
                 if (ret == 0) {
                     printk("%s\n", buffer);
                 } else {
-                    printk("JSON encode failed\n");
+                    printk("JSON encode failed (err %d)\n", ret);
                 }
-                    
             }
 
             net_buf_simple_pull(ad, len);
@@ -103,6 +130,7 @@ static void device_found(const bt_addr_le_t *addr, int8_t rssi, uint8_t type,
         }
     }
 }
+
 
 // Scanner thread
 void scanner_thread_fn(void) {
@@ -163,11 +191,16 @@ void ultrasonic_thread_fn(void *gpio_dev, void *unused1, void *unused2) {
         if (distance_mm > 65535) distance_mm = 65535;
         uint16_t dist_encoded = (uint16_t)distance_mm;
 
+        k_mutex_lock(&distance_mutex, K_FOREVER);
+        distance_ring[distance_ring_head] = dist_encoded;
+        distance_ring_head = (distance_ring_head + 1) % DIST_RING_SIZE;
+        k_mutex_unlock(&distance_mutex);
+
         printk("Distance: encoded as %u mm\n", dist_encoded);
 
-        mfg_data[3] = 69; // simulated servo angle
-
+        mfg_data[3] = 69;
         bt_le_adv_update_data(ad, ARRAY_SIZE(ad), NULL, 0);
+
 
         k_sleep(K_MSEC(500));
     }
