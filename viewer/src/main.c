@@ -30,17 +30,10 @@ LOG_MODULE_REGISTER(app);
 #define UUID_COORD_CHAR \
     BT_UUID_DECLARE_128(BT_UUID_128_ENCODE(0x91fc7974, 0x6500, 0x4385, 0x9d19, 0xdc705a3b3de9))
 
-static lv_obj_t *dot;
 static lv_obj_t *coord_label;
 
 struct pos {
     float x, y;
-};
-
-static struct pos beacons[8] = {
-    {0.0f, 3.0f}, {1.8f, 3.0f}, {3.6f, 3.0f},
-    {0.0f, 1.5f}, {3.6f, 1.5f},
-    {0.0f, 0.0f}, {1.8f, 0.0f}, {3.6f, 0.0f},
 };
 
 static void viewport_transform(float x_m, float y_m, int *px, int *py) {
@@ -51,32 +44,52 @@ static void viewport_transform(float x_m, float y_m, int *px, int *py) {
 }
 
 static void update_position(float x, float y) {
-    // Use original x, y for screen positioning
-    int px, py;
-    viewport_transform(x, y, &px, &py);
-    lv_obj_set_pos(dot, px - DOT_SIZE / 2, py - DOT_SIZE / 2);
+    LV_UNUSED(x);
+    LV_UNUSED(y);
 
-    // Scale only for label display
-    float x_disp = x / 0.9f;
-    int xi = (int)(x_disp * 100);
-    int yi = (int)(y * 100);
-    int x_whole = xi / 100, x_frac = abs(xi % 100);
-    int y_whole = yi / 100, y_frac = abs(yi % 100);
+    float humidity = 55.3f;
+    float temperature = 24.7f;
+    int rssi_avg = -67;
 
-    lv_label_set_text_fmt(coord_label, "(%s%d.%02d, %s%d.%02d)",
-        (x_disp < 0 ? "-" : ""), abs(x_whole), x_frac,
-        (y < 0 ? "-" : ""), abs(y_whole), y_frac);
+    lv_label_set_text_fmt(coord_label,
+        "Humidity: %.1f %%\n"
+        "Temperature: %.1f °C\n"
+        "RSSI Avg: %d dBm",
+        humidity, temperature, rssi_avg);
 }
 
 static ssize_t write_coords(struct bt_conn *conn, const struct bt_gatt_attr *attr,
                             const void *buf, uint16_t len, uint16_t offset, uint8_t flags) {
-    if (len >= sizeof(float) * 2) {
-        float *f = (float *)buf;
-        float x = f[0];
-        float y = f[1];
-        LOG_INF("Received coords: x=%.2lf, y=%.2lf", (double)x, (double)y);
-        update_position(x , y); // <---
+    if (len >= 14) {
+        const uint8_t *data = buf;
+
+        uint16_t company_id     = (data[1] << 8) | data[0];
+        uint16_t co2_value      = (data[3] << 8) | data[2];
+        uint16_t humid_value    = (data[5] << 8) | data[4];
+        uint16_t temp_value     = (data[7] << 8) | data[6];
+        uint16_t angle_value    = (data[9] << 8) | data[8];
+        uint32_t distance_value = (data[13] << 24) | (data[12] << 16) | (data[11] << 8) | data[10];
+
+        LOG_INF("Company ID: %u", company_id);
+        LOG_INF("CO2: %u ppm", co2_value);
+        LOG_INF("Humidity: %.2f %%", humid_value / 100.0f);
+        LOG_INF("Temperature: %.2f °C", temp_value / 100.0f);
+        LOG_INF("Angle: %u deg", angle_value);
+        LOG_INF("Distance: %.2f cm", distance_value / 100.0f);
+
+        lv_label_set_text_fmt(coord_label,
+            "CO2: %u ppm\n"
+            "Humidity: %u.%02u %%\n"
+            "Temp: %u.%02u °C\n"
+            "Angle: %u°\n"
+            "Dist: %u.%02u cm",
+            co2_value,
+            humid_value / 100, humid_value % 100,
+            temp_value / 100, temp_value % 100,
+            angle_value,
+            distance_value / 100, distance_value % 100);
     }
+
     return len;
 }
 
@@ -96,30 +109,12 @@ int main(void) {
     }
 
     lv_init();
-    lv_obj_t *bg = lv_obj_create(lv_scr_act());
-    lv_obj_set_size(bg, SCREEN_WIDTH, SCREEN_HEIGHT);
-    lv_obj_align(bg, LV_ALIGN_TOP_LEFT, 0, 0);
-    lv_obj_set_style_bg_color(bg, lv_color_hex(0x0033aa), 0);
-    lv_obj_clear_flag(bg, LV_OBJ_FLAG_SCROLLABLE);
-
-    dot = lv_obj_create(bg);
-    lv_obj_set_size(dot, DOT_SIZE, DOT_SIZE);
-    lv_obj_set_style_bg_color(dot, lv_color_hex(0xFF0000), 0);
-    lv_obj_clear_flag(dot, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_t *bg = lv_scr_act();  // Use root screen directly
+    lv_obj_set_style_bg_color(bg, lv_color_hex(0xFFFFFF), 0);  // White background
 
     coord_label = lv_label_create(bg);
-    lv_obj_align(coord_label, LV_ALIGN_BOTTOM_RIGHT, -10, -10);
-    lv_label_set_text(coord_label, "(0.00, 0.00)");
-
-    for (int i = 0; i < 8; i++) {
-        int px, py;
-        viewport_transform(beacons[i].x, beacons[i].y, &px, &py);
-        lv_obj_t *b = lv_obj_create(bg);
-        lv_obj_set_size(b, 8, 8);
-        lv_obj_set_style_bg_color(b, lv_color_hex(0x00FF00), 0);
-        lv_obj_clear_flag(b, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_set_pos(b, px - 4, py - 4);
-    }
+    lv_obj_align(coord_label, LV_ALIGN_CENTER, 0, 0);
+    lv_label_set_text(coord_label, "Waiting for data...");
 
     display_blanking_off(display_dev);
     lv_task_handler();
