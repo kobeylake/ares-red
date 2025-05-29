@@ -7,7 +7,8 @@
 #include <zephyr/bluetooth/hci.h>
 #include <string.h>
 #include <zephyr/data/json.h>
-
+#include <zephyr/shell/shell.h>
+#include <stdlib.h>
 
 #define COMPANY_ID         0x6FAF  // LSB: 0xAF, 0x6F
 #define APP_ID_MOBILE      0xBB
@@ -35,8 +36,6 @@ struct sensor_json_msg {
     int32_t angle_value;
     int32_t distance_value;
 };
-
-
 
 static const struct json_obj_descr sensor_json_descr[] = {
     JSON_OBJ_DESCR_PRIM(struct sensor_json_msg, company_id, JSON_TOK_NUMBER),
@@ -66,21 +65,39 @@ static const struct bt_le_adv_param *adv_params = BT_LE_ADV_PARAM(
     NULL
 );
 
+static bool ultrasonic_enabled = true;
+static bool manual_mode = false;
+static uint8_t manual_angle = 0;
+static bool sensor_override = false;
+static int overridden_co2 = 400;
+static int overridden_temp = 25;
+
+uint8_t calculate_angle(int co2_ppm, int temp_c){
+
+    float angle = (co2_ppm / 1000.0f) * 90.0f; // Scale CO2 to 0-90 degrees
+    angle += (temp_c - 20) * 1.5f; // Adjust based on temperature
+
+    if (angle < 0) angle = 0;
+    if (angle > 90) angle = 90;
+
+    return (uint8_t)angle;
+}
+
 // Scanner callback
 static void device_found(const bt_addr_le_t *addr, int8_t rssi, uint8_t type,
-                         struct net_buf_simple *ad) {
-    while (ad->len > 1) {
-        uint8_t len = net_buf_simple_pull_u8(ad);
-        if (len == 0 || len > ad->len) break;
+                         struct net_buf_simple *buf) {
+    while (buf->len > 1) {
+        uint8_t len = net_buf_simple_pull_u8(buf);
+        if (len == 0 || len > buf->len) break;
 
-        uint8_t field_type = net_buf_simple_pull_u8(ad);
+        uint8_t field_type = net_buf_simple_pull_u8(buf);
         len--;
 
         if (field_type == BT_DATA_MANUFACTURER_DATA && len >= 6) {
-            uint16_t company_id = sys_get_le16(ad->data);
+            uint16_t company_id = sys_get_le16(buf->data);
 
-            if (company_id == COMPANY_ID && ad->data[2] == APP_ID_MOBILE) {
-                const uint8_t *payload = ad->data + 3;
+            if (company_id == COMPANY_ID && buf->data[2] == APP_ID_MOBILE) {
+                const uint8_t *payload = buf->data + 3;
 
                 int16_t temp_raw = (payload[0] << 8) | payload[1];
                 uint16_t co2_raw = (payload[2] << 8) | payload[3];
@@ -103,6 +120,12 @@ static void device_found(const bt_addr_le_t *addr, int8_t rssi, uint8_t type,
                 // printk("  CO2: %u ppm\n", co2_raw);
                 // printk("  Humidity: %d.%02d%%\n", humid_int, humid_frac);
 
+                int used_co2 = sensor_override ? overridden_co2 : co2_raw;
+                int used_temp = sensor_override ? overridden_temp : temp_int;
+                uint8_t angle = manual_mode ? manual_angle : calculate_angle(used_co2, used_temp);
+                mfg_data[3] = angle;
+                bt_le_adv_update_data(ad, ARRAY_SIZE(ad), NULL, 0);
+
                 struct sensor_json_msg msg = {
                     .company_id = COMPANY_ID,
                     .co2_value = co2_raw,
@@ -110,7 +133,7 @@ static void device_found(const bt_addr_le_t *addr, int8_t rssi, uint8_t type,
                     .humid_value_len = 2,
                     .temp_value = {temp_int, temp_frac},
                     .temp_value_len = 2,
-                    .angle_value = mfg_data[3],
+                    .angle_value = angle,
                     .distance_value = latest_distance
                 };              
 
@@ -124,13 +147,12 @@ static void device_found(const bt_addr_le_t *addr, int8_t rssi, uint8_t type,
                 }
             }
 
-            net_buf_simple_pull(ad, len);
+            net_buf_simple_pull(buf, len);
         } else {
-            net_buf_simple_pull(ad, len);
+            net_buf_simple_pull(buf, len);
         }
     }
 }
-
 
 // Scanner thread
 void scanner_thread_fn(void) {
@@ -197,15 +219,9 @@ void ultrasonic_thread_fn(void *gpio_dev, void *unused1, void *unused2) {
         k_mutex_unlock(&distance_mutex);
 
         printk("Distance: encoded as %u mm\n", dist_encoded);
-
-        mfg_data[3] = 69;
-        bt_le_adv_update_data(ad, ARRAY_SIZE(ad), NULL, 0);
-
-
         k_sleep(K_MSEC(500));
     }
 }
-
 
 // Declare scanner thread
 #define SCANNER_STACK_SIZE 1024
@@ -218,6 +234,94 @@ static struct k_thread scanner_thread_data;
 #define ULTRASONIC_PRIORITY   4
 K_THREAD_STACK_DEFINE(ultrasonic_stack, ULTRASONIC_STACK_SIZE);
 static struct k_thread ultrasonic_thread_data;
+
+static int cmd_ultrasonic_on(const struct shell *shell, size_t argc, char **argv) {
+    if (!ultrasonic_enabled) {
+        k_thread_resume(&ultrasonic_thread_data);
+        ultrasonic_enabled = true;
+        shell_print(shell, "Ultrasonic sensor enabled.");
+    } else {
+        shell_print(shell, "Ultrasonic sensor already enabled.");
+    }
+    return 0;
+}
+
+static int cmd_ultrasonic_off(const struct shell *shell, size_t argc, char **argv) {
+    if (ultrasonic_enabled) {
+        k_thread_suspend(&ultrasonic_thread_data);
+        ultrasonic_enabled = false;
+        shell_print(shell, "Ultrasonic sensor disabled.");
+    } else {
+        shell_print(shell, "Ultrasonic sensor already disabled.");
+    }
+    return 0;
+}
+
+static int cmd_servo_set(const struct shell *shell, size_t argc, char **argv) {
+    int angle = atoi(argv[1]);
+    if (angle < 0 || angle > 90) {
+        shell_print(shell, "Angle must be between 0 and 90.");
+        return -EINVAL;
+    }
+    manual_angle = angle;
+    mfg_data[3] = manual_angle;
+    manual_mode = true;
+    shell_print(shell, "Servo angle set to %d (manual mode).", angle);
+    return 0;
+}
+
+static int cmd_servo_mode(const struct shell *shell, size_t argc, char **argv) {
+    if (strcmp(argv[1], "manual") == 0) {
+        manual_mode = true;
+        mfg_data[3] = manual_angle;
+        shell_print(shell, "Switched to manual servo control.");
+    } else if (strcmp(argv[1], "auto") == 0) {
+        manual_mode = false;
+        shell_print(shell, "Switched to automatic servo control.");
+    } else {
+        shell_print(shell, "Usage: servo_mode [manual|auto]");
+        return -EINVAL;
+    }
+    return 0;
+}
+
+static int cmd_servo_get(const struct shell *shell, size_t argc, char **argv) {
+    shell_print(shell, "Current advertised servo angle: %d (mode: %s)",
+                mfg_data[3], manual_mode ? "manual" : "auto");
+    return 0;
+}
+
+static int cmd_sensor_override(const struct shell *shell, size_t argc, char **argv) {
+    overridden_co2 = atoi(argv[1]);
+    overridden_temp = atoi(argv[2]);
+    sensor_override = true;
+    shell_print(shell, "Sensor override enabled: CO2=%d ppm, Temp=%d C", overridden_co2, overridden_temp);
+    return 0;
+}
+
+static int cmd_sensor_use_real(const struct shell *shell, size_t argc, char **argv) {
+    sensor_override = false;
+    shell_print(shell, "Sensor override disabled. Using real data.");
+    return 0;
+}
+
+static int cmd_sensor_status(const struct shell *shell, size_t argc, char **argv) {
+    if (sensor_override) {
+        shell_print(shell, "Override ACTIVE - CO2: %d ppm, Temp: %d C", overridden_co2, overridden_temp);
+    } else {
+        shell_print(shell, "Override DISABLED - using real sensor data.");
+    }
+    return 0;
+}
+
+SHELL_CMD_REGISTER(ultrasonic_on, NULL, "Enable ultrasonic sensor", cmd_ultrasonic_on);
+SHELL_CMD_REGISTER(ultrasonic_off, NULL, "Disable ultrasonic sensor", cmd_ultrasonic_off);
+SHELL_CMD_REGISTER(servo_set, NULL, "Set servo angle (0-90)", cmd_servo_set);
+SHELL_CMD_REGISTER(servo_mode, NULL, "Set servo mode [manual|auto]", cmd_servo_mode);
+SHELL_CMD_REGISTER(servo_get, NULL, "Get current servo angle", cmd_servo_get);
+SHELL_CMD_REGISTER(sensor_override, NULL, "Override sensor CO2 and Temp", cmd_sensor_override);
+SHELL_CMD_REGISTER(sensor_use_real, NULL, "Use real sensor data", cmd_sensor_use_real);
+SHELL_CMD_REGISTER(sensor_status, NULL, "Show sensor override status", cmd_sensor_status);
 
 int main(void)
 {
