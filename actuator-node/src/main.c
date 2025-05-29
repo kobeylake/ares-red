@@ -31,38 +31,55 @@ void update_servo(uint8_t angle)
     int ret = pwm_set_dt(&pwm_signal, SERVO_PERIOD, pulse);
     if (ret < 0) {
         printk("PWM set failed (%d)\n", ret);
-    } else {
-        printk("Set servo to angle %d (%u us pulse)\n", angle, pulse);
     }
+    // } else {
+    //     printk("Set servo to angle %d (%u us pulse)\n", angle, pulse);
+    // }
 }
 
-// BLE device scan callback
 static void device_found(const bt_addr_le_t *addr, int8_t rssi, uint8_t type,
-                         struct net_buf_simple *ad)
-{
-    while (ad->len > 1) {
-        uint8_t len = net_buf_simple_pull_u8(ad);
-        if (len == 0 || len > ad->len) break;
+                         struct net_buf_simple *buf) {
+    while (buf->len > 1) {
+        uint8_t len = net_buf_simple_pull_u8(buf);
+        if (len == 0 || len > buf->len) break;
 
-        uint8_t field_type = net_buf_simple_pull_u8(ad);
+        uint8_t field_type = net_buf_simple_pull_u8(buf);
         len--;
 
-        if (field_type == BT_DATA_MANUFACTURER_DATA && len >= 4) {
-            uint16_t company_id = sys_get_le16(ad->data);
-            uint8_t app_id = ad->data[2];
-            uint8_t angle = ad->data[3];
+        if (field_type == BT_DATA_MANUFACTURER_DATA && len >= 9) {
+            uint16_t company_id = sys_get_le16(buf->data);
 
-            if (company_id == COMPANY_ID && app_id == APP_ID_BASE) {
+            if (company_id == COMPANY_ID && buf->data[2] == APP_ID_BASE) {
+                const uint8_t *payload = buf->data + 3;
+
+                // Decode values
+                uint16_t co2      = sys_get_le16(&payload[0]);
+                uint16_t humidity = sys_get_le16(&payload[2]);
+                uint16_t temp     = sys_get_le16(&payload[4]);
+                uint8_t angle     = payload[6];
+                uint16_t distance = sys_get_le16(&payload[7]);
+
+                // Build JSON string
+                char buffer[128];
+                int ret = snprintf(buffer, sizeof(buffer),
+                    "{\"co2\":%u,\"humidity\":%u,\"temp\":%u,\"angle\":%u,\"distance\":%u}",
+                    co2, humidity, temp, angle, distance);
+
+                if (ret > 0 && ret < sizeof(buffer)) {
+                    printk("%s\n", buffer);
+                } else {
+                    printk("JSON formatting failed\n");
+                }
+
+                // Update servo angle
                 k_mutex_lock(&angle_mutex, K_FOREVER);
                 current_angle = angle;
                 k_mutex_unlock(&angle_mutex);
-
-                printk("Received angle %d from base node\n", angle);
             }
 
-            net_buf_simple_pull(ad, len);
+            net_buf_simple_pull(buf, len);
         } else {
-            net_buf_simple_pull(ad, len);
+            net_buf_simple_pull(buf, len);
         }
     }
 }
