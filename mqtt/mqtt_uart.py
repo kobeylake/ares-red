@@ -1,33 +1,22 @@
-# mqtt_uart.py
-import time
-import json
+import serial
 import paho.mqtt.client as mqtt
 
-# MQTT settings
-BROKER_IP = "192.168.0.242"
+BROKER_IP = "10.89.186.37"
+PORT = 1883
 TOPIC = "greenhouse/data"
-
-# Simulated data
-test_data = {
-    "temp": 25.7,
-    "humidity": 45.2,
-    "co2": 850,
-    "yaw": 12.5,
-    "angle": 33.0
-}
+UART_PORT = "COM7"
+BAUD_RATE = 115200
 
 def main():
+    ser = serial.Serial(UART_PORT, BAUD_RATE, timeout=1)
     client = mqtt.Client()
-    client.connect(BROKER_IP, 1883, 60)
+    client.connect(BROKER_IP, PORT, 60)
 
-    # Convert to JSON and publish
-    json_data = json.dumps(test_data)
-    client.publish(TOPIC, json_data)
-    print(f"[MQTT] Published: {json_data}")
-
-    client.disconnect()
+    while True:
+        line = ser.readline().decode('utf-8').strip()
+        if line.startswith("{") and line.endswith("}"):
+            print("Publishing:", line)
+            client.publish(TOPIC, line)
 
 if __name__ == "__main__":
-    while True:
-        main()
-        time.sleep(5)  # Send every 5 seconds
+    main()
