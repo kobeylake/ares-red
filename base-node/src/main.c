@@ -29,10 +29,8 @@ K_MUTEX_DEFINE(distance_mutex);
 struct sensor_json_msg {
     int32_t company_id;
     int32_t co2_value;
-    int32_t humid_value[2];
-    size_t humid_value_len;
-    int32_t temp_value[2];
-    size_t temp_value_len;
+    int32_t humid_value;
+    int32_t temp_value;
     int32_t angle_value;
     int32_t distance_value;
 };
@@ -40,17 +38,21 @@ struct sensor_json_msg {
 static const struct json_obj_descr sensor_json_descr[] = {
     JSON_OBJ_DESCR_PRIM(struct sensor_json_msg, company_id, JSON_TOK_NUMBER),
     JSON_OBJ_DESCR_PRIM(struct sensor_json_msg, co2_value, JSON_TOK_NUMBER),
-    JSON_OBJ_DESCR_ARRAY(struct sensor_json_msg, humid_value, 2, humid_value_len, JSON_TOK_NUMBER),
-    JSON_OBJ_DESCR_ARRAY(struct sensor_json_msg, temp_value, 2, temp_value_len, JSON_TOK_NUMBER),
+    JSON_OBJ_DESCR_PRIM(struct sensor_json_msg, humid_value, JSON_TOK_NUMBER),
+    JSON_OBJ_DESCR_PRIM(struct sensor_json_msg, temp_value, JSON_TOK_NUMBER),
     JSON_OBJ_DESCR_PRIM(struct sensor_json_msg, angle_value, JSON_TOK_NUMBER),
     JSON_OBJ_DESCR_PRIM(struct sensor_json_msg, distance_value, JSON_TOK_NUMBER)
 };
 
 // BLE Advertising payload (used to send servo angle)
-static uint8_t mfg_data[4] = {
+static uint8_t mfg_data[12] = {
     0xAF, 0x6F, // Company ID
     APP_ID_BASE,
-    0x00        // Placeholder for servo angle (0-90)
+    0x00, 0x00, // co2
+    0x00, 0x00, //humidity
+    0x00, 0x00, //temp
+    0x00, // Placeholder for servo angle (0-90)
+    0x00, 0x00// distance
 };
 
 static struct bt_data ad[] = {
@@ -109,11 +111,22 @@ static void device_found(const bt_addr_le_t *addr, int8_t rssi, uint8_t type,
                 uint16_t humid_int = humid_raw / 100;
                 uint16_t humid_frac = humid_raw % 100;
 
+                // Write 16-bit CO2
+                sys_put_le16(co2_raw, &mfg_data[3]);
+
+                // Write 16-bit humidity
+                sys_put_le16(humid_raw, &mfg_data[5]);
+
+                // Write 16-bit temperature
+                sys_put_le16(temp_raw, &mfg_data[7]);
+
                 uint16_t latest_distance = 0;
                 k_mutex_lock(&distance_mutex, K_FOREVER);
                 size_t last_idx = (distance_ring_head + DIST_RING_SIZE - 1) % DIST_RING_SIZE;
                 latest_distance = distance_ring[last_idx];
                 k_mutex_unlock(&distance_mutex);
+
+                sys_put_le16(latest_distance, &mfg_data[10]);
 
                 // printk("Received Mobile Node Data:\n");
                 // printk("  Temp: %d.%02d°C\n", temp_int, temp_frac);
@@ -123,16 +136,14 @@ static void device_found(const bt_addr_le_t *addr, int8_t rssi, uint8_t type,
                 int used_co2 = sensor_override ? overridden_co2 : co2_raw;
                 int used_temp = sensor_override ? overridden_temp : temp_int;
                 uint8_t angle = manual_mode ? manual_angle : calculate_angle(used_co2, used_temp);
-                mfg_data[3] = angle;
+                mfg_data[9] = angle;
                 bt_le_adv_update_data(ad, ARRAY_SIZE(ad), NULL, 0);
 
                 struct sensor_json_msg msg = {
                     .company_id = COMPANY_ID,
                     .co2_value = co2_raw,
-                    .humid_value = {humid_int, humid_frac},
-                    .humid_value_len = 2,
-                    .temp_value = {temp_int, temp_frac},
-                    .temp_value_len = 2,
+                    .humid_value = humid_raw,
+                    .temp_value = temp_raw,
                     .angle_value = angle,
                     .distance_value = latest_distance
                 };              
@@ -218,7 +229,7 @@ void ultrasonic_thread_fn(void *gpio_dev, void *unused1, void *unused2) {
         distance_ring_head = (distance_ring_head + 1) % DIST_RING_SIZE;
         k_mutex_unlock(&distance_mutex);
 
-        printk("Distance: encoded as %u mm\n", dist_encoded);
+        //printk("Distance: encoded as %u mm\n", dist_encoded);
         k_sleep(K_MSEC(500));
     }
 }
