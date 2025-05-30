@@ -74,16 +74,58 @@ static bool sensor_override = false;
 static int overridden_co2 = 400;
 static int overridden_temp = 25;
 
-uint8_t calculate_angle(int co2_ppm, int temp_c){
+uint8_t calculate_angle(int co2_ppm, int temp_c, int humidity, float distance_cm) {
+    static float smoothed_angle = 0.0f;
+    float angle = 0.0f;
 
-    float angle = (co2_ppm / 1000.0f) * 90.0f; // Scale CO2 to 0-90 degrees
-    angle += (temp_c - 20) * 1.5f; // Adjust based on temperature
+    const int CO2_BASELINE = 500;
+    const int CO2_MAX = 1200;
 
-    if (angle < 0) angle = 0;
-    if (angle > 90) angle = 90;
+    const int TEMP_BASELINE = 20;
+    const int TEMP_MAX = 35;
 
-    return (uint8_t)angle;
+    const int HUMID_BASELINE = 30;
+    const int HUMID_MAX = 70;
+
+    // --- CO2 contribution ---
+    float co2_frac = 0.0f;
+    if (co2_ppm > CO2_BASELINE) {
+        co2_frac = (float)(co2_ppm - CO2_BASELINE) / (CO2_MAX - CO2_BASELINE);
+        if (co2_frac > 1.0f) co2_frac = 1.0f;
+        angle += co2_frac * 60.0f;  // 60% weight
+    }
+
+    // --- Temperature contribution ---
+    float temp_frac = 0.0f;
+    if (temp_c > TEMP_BASELINE) {
+        temp_frac = (float)(temp_c - TEMP_BASELINE) / (TEMP_MAX - TEMP_BASELINE);
+        if (temp_frac > 1.0f) temp_frac = 1.0f;
+        angle += temp_frac * 30.0f;  // 30% weight
+    }
+
+    // --- Humidity contribution (lower weight) ---
+    float humid_frac = 0.0f;
+    if (humidity > HUMID_BASELINE) {
+        humid_frac = (float)(humidity - HUMID_BASELINE) / (HUMID_MAX - HUMID_BASELINE);
+        if (humid_frac > 1.0f) humid_frac = 1.0f;
+        angle += humid_frac * 10.0f;  // 10% weight
+    }
+
+    // --- Adjust if door is open (distance > 20 cm) ---
+    if (distance_cm > 8.0f) {
+        angle = angle * 0.7f;  // Cap the angle when the door is open
+    }
+
+    // --- Smooth the angle ---
+    const float alpha = 0.4f;
+    smoothed_angle = smoothed_angle * (1.0f - alpha) + angle * alpha;
+
+    // --- Clamp max value ---
+    if (smoothed_angle > 90.0f) smoothed_angle = 90.0f;
+
+    return (uint8_t)smoothed_angle;
 }
+
 
 // Scanner callback
 static void device_found(const bt_addr_le_t *addr, int8_t rssi, uint8_t type,
@@ -106,10 +148,10 @@ static void device_found(const bt_addr_le_t *addr, int8_t rssi, uint8_t type,
                 uint16_t humid_raw = (payload[4] << 8) | payload[5];
 
                 uint16_t temp_int = temp_raw / 100;
-                uint16_t temp_frac = temp_raw % 100;
+                //uint16_t temp_frac = temp_raw % 100;
 
-                uint16_t humid_int = humid_raw / 100;
-                uint16_t humid_frac = humid_raw % 100;
+                //uint16_t humid_int = humid_raw / 100;
+                //uint16_t humid_frac = humid_raw % 100;
 
                 // Write 16-bit CO2
                 sys_put_le16(co2_raw, &mfg_data[3]);
@@ -135,7 +177,13 @@ static void device_found(const bt_addr_le_t *addr, int8_t rssi, uint8_t type,
 
                 int used_co2 = sensor_override ? overridden_co2 : co2_raw;
                 int used_temp = sensor_override ? overridden_temp : temp_int;
-                uint8_t angle = manual_mode ? manual_angle : calculate_angle(used_co2, used_temp);
+                float distance_cm = latest_distance / 10.0f;
+                uint8_t angle;
+                if (manual_mode) {
+                    angle = manual_angle;
+                } else {
+                    angle = calculate_angle(used_co2, used_temp, humid_raw, distance_cm);
+                }
                 mfg_data[9] = angle;
                 bt_le_adv_update_data(ad, ARRAY_SIZE(ad), NULL, 0);
 
@@ -275,7 +323,7 @@ static int cmd_servo_set(const struct shell *shell, size_t argc, char **argv) {
         return -EINVAL;
     }
     manual_angle = angle;
-    mfg_data[3] = manual_angle;
+    mfg_data[9] = manual_angle;
     manual_mode = true;
     shell_print(shell, "Servo angle set to %d (manual mode).", angle);
     return 0;
@@ -284,7 +332,7 @@ static int cmd_servo_set(const struct shell *shell, size_t argc, char **argv) {
 static int cmd_servo_mode(const struct shell *shell, size_t argc, char **argv) {
     if (strcmp(argv[1], "manual") == 0) {
         manual_mode = true;
-        mfg_data[3] = manual_angle;
+        mfg_data[9] = manual_angle;
         shell_print(shell, "Switched to manual servo control.");
     } else if (strcmp(argv[1], "auto") == 0) {
         manual_mode = false;
@@ -298,7 +346,7 @@ static int cmd_servo_mode(const struct shell *shell, size_t argc, char **argv) {
 
 static int cmd_servo_get(const struct shell *shell, size_t argc, char **argv) {
     shell_print(shell, "Current advertised servo angle: %d (mode: %s)",
-                mfg_data[3], manual_mode ? "manual" : "auto");
+                mfg_data[9], manual_mode ? "manual" : "auto");
     return 0;
 }
 
